@@ -1,0 +1,362 @@
+---
+title: "Untitled"
+author: "Yutaro Yamada"
+date: "December 9, 2015"
+output: html_document
+---
+
+```{r}
+setwd("/Users/yutaro/Dropbox/Yale/3_Junior_Fall/stat361/final_project/")
+armh = read.table("armh.txt")
+plot(seq(1:13701), armh[12,], type="l")
+# looks like 
+
+wave = read.table("wave.txt")
+plot(seq(1:13701), wave[,1])
+
+anthrax1 = read.table("anthrax1.txt")
+anthrax2 = read.table("anthrax2.txt")
+plotGraph(anthrax2)
+plotGraph <- function(substance){
+  par(mfrow=c(2,3))
+  for(i in 1:12){
+    plot(seq(1:13701), substance[i,], type="l")
+  }
+  par(mfrow=c(1,1))
+}
+```
+
+```{r}
+# delete outliers from the 12 samples for each substance
+
+# How should I do this?
+#1 Take the mean ... remove the one that's way too off.
+#2 variance 
+#3 median
+
+log_armh = armh[12,]
+# There are 2 data points where VarianceTotalTime == 0, so I added a small amount so that we can take log. 
+# sum(data$VarianceTotalTime == 0) ## Shows 8.
+log_armh = log(log_armh)
+#logToT = log(data$TotalTime)
+plot(seq(1:13701), log_armh, type="l")
+
+library(stats)
+invfft_log_armh = fft(as.numeric(log_armh))
+plot(seq(1:13701), invfft_log_armh, type="l")
+
+
+```
+
+
+
+```{r}
+# let's just apply SVD and take the first 12 components and do classification by tonight. 
+# Do data cleaning later. The outliers are only like 0.6% of the entire data, so it shouldn't really affect the accuracy. We can just do this to make the report nicer (later)
+# 1. Extract all the data. The matrix X should be 120*13701. 
+# 2. X = USV^t. Reduced_X 0 = U*Sig.
+# 3. Take the first 12 vectors and reconstract matrix X. 
+# 4. reduced_X should be 120*12. Now we can apply Support Vector Machine. y = 1 or -1.
+# 5. How should I prepare arguments for SVM? Is it Dataframe? 
+# 6. Anyway, train SVM with these X and y. Should get this done by tonight!!!
+```
+
+```{r}
+# load all training data
+anthrax1 = read.table("anthrax1.txt")
+anthrax2 = read.table("anthrax2.txt")
+anthrax3 = read.table("anthrax3.txt")
+
+armh = read.table("armh.txt")
+bakingpowder = read.table("bakingpowder.txt")
+bakingsoda = read.table("bakingsoda.txt")
+chalk = read.table("crayolachalk.txt")
+flour = read.table("flour.txt")
+ibuprofen = read.table("ibuprofen.txt")
+sugar = read.table("sugar.txt")
+detergent = read.table("tideldbaked.txt")
+tylenol = read.table("tylenolgelcap.txt")
+```
+
+```{r}
+getTrainingSet <-function(anthrax1, anthrax2, anthrax3, armh, bakingpowder, bakingsoda, chalk, flour, ibuprofen, sugar, detergent, tylenol){
+  X <- rbind(anthrax1, anthrax2, anthrax3, armh, bakingpowder, bakingsoda, chalk, flour, ibuprofen, sugar, detergent, tylenol)
+  y_pos_len = nrow(anthrax1)+nrow(anthrax2)+nrow(anthrax3)
+  y_pos <- rep(1, y_pos_len)
+  y_neg_len = nrow(X) - y_pos_len
+  y_neg <- rep(-1, y_neg_len)
+  y <- c(y_pos, y_neg)
+  
+  # randomly permutate the rows of X and correspondingly y's index
+  id_list <- seq(1:nrow(X))
+  idx <- sample(id_list, nrow(X), replace=FALSE,prob=NULL)
+  X <- X[idx, ]
+  y <- y[idx]
+  return(list(X, y))
+}
+
+setValTrain <- function(X, y){
+  num <- nrow(X)
+  valX <- X[1:(ceiling(num/10)),]
+  trainX <- X[-(1:(ceiling(num/10))),]
+  valy <- y[1:(ceiling(num/10))]
+  trainy <- y[-(1:(ceiling(num/10)))]
+  
+  return(list(valX, trainX, valy, trainy))
+}
+
+```
+
+# Here, get X_all and y_all
+```{r}
+# get training set!!!
+Xy_all <- getTrainingSet(anthrax1, anthrax2, anthrax3, armh, bakingpowder, bakingsoda, chalk, flour, ibuprofen, sugar, detergent, tylenol)
+
+X_all <- Xy_all[[1]]
+y_all <- Xy_all[[2]]
+```
+
+
+```{r}
+# Singular Value Decomposition
+SVD <- svd(X_all)
+u <- SVD$u
+v <- SVD$v
+d <- SVD$d
+
+D = diag(d)
+```
+
+
+```{r}
+# Construct a reduced matrix 
+temp = u[,1:5] %*% D[1:5,]
+X_small = temp %*% t(v[1:5,])
+
+temp <- setValTrain(X_small, y_all)
+
+#valX, trainX, valy, trainy
+valX <- temp[[1]]
+trainX <- temp[[2]]
+valy <- temp[[3]]
+trainy <- temp[[4]]
+
+# SVM classification!!! (tentatively)
+
+library("e1071")
+
+svm_model1 <- svm(data.frame(trainX), as.factor(trainy))
+svm1.class <- as.numeric(predict(svm_model1,data.frame(valX)))
+
+valy_ = valy
+valy_[which(valy == -1)] = 1 
+valy_[which(valy == 1)] = 2
+
+score_func <- function(y, my_y){
+  y_ = y
+  y_[which(y==-1)] = 1
+  y_[which(y==1)] = 2
+  return(sum(y_==my_y) / length(y_))
+}
+
+score_func(valy, svm1.class) # got 0.87
+```
+
+
+```{r}
+
+performCV <- function(train_X, train_y, size){
+  list_acc = rep(0,10)
+  list_acc_train = rep(0,10)
+  for(i in 1:10){
+    #cat(dim(train_X))
+    X_val = train_X[((i-1)*size+1):(i*size), ]
+    #cat(dim(X_val))
+    X_train = train_X[-(((i-1)*size+1):(i*size)), ]
+    #cat(dim(X_train))
+    y_val = train_y[((i-1)*size+1):(i*size)]
+    y_train = train_y[-(((i-1)*size+1):(i*size))]
+    #temp = data.frame(X_train)
+    model_1 <- svm(data.frame(X_train), as.factor(y_train))
+    train.class <- as.numeric(predict(model_1, data.frame(X_train)))
+    svm1.class <- as.numeric(predict(model_1,data.frame(X_val)))
+    #cat("ok") 
+    #cat("ok")
+    #pred_model = predict(model_1, temp_val)
+    #cat("ok")
+    list_acc[i] = score_func(y_val, svm1.class)
+    list_acc_train[i] = score_func(y_train, train.class)
+  }
+  return(list(list_acc, list_acc_train))
+}
+```
+
+
+# First Try. 
+```{r}
+# this trainX is 144 x 5
+acc <- performCV(trainX, trainy, size=12)
+mean(acc) # 0.8916667
+acc <- performCV(X_small, y_all, size=14)
+mean(acc) # 0.9
+```
+
+# Function for reconstructing a reduced matrix X
+```{r}
+library("e1071")
+getScore_SVD <- function(X_all, y_all, size, simple, test_or_valid, lm_flag){
+  if(lm_flag==TRUE){
+    X_small = X_all
+  }else{
+    # Singular Value Decomposition
+    SVD <- svd(X_all)
+    u <- SVD$u
+    v <- SVD$v
+    d <- SVD$d
+    
+    D = diag(d)
+    
+    # Construct a reduced matrix 
+    # temp = u[,1:size] %*% D[1:size,]
+    # X_small = temp %*% t(v[1:size,])
+    #print(dim(X_all))
+    #print(dim(v[,1:size]))
+    X_small = as.matrix(X_all) %*% v[,1:size]
+  }
+  if(test_or_valid=="valid"){
+    if(simple == TRUE){
+      temp <- setValTrain(X_small, y_all)
+      
+      #valX, trainX, valy, trainy
+      valX <- temp[[1]]
+      trainX <- temp[[2]]
+      valy <- temp[[3]]
+      trainy <- temp[[4]]
+      
+      # SVM classification!!! (tentatively)
+      
+      
+      
+      svm_model1 <- svm(data.frame(trainX), as.factor(trainy))
+      svm1.class <- as.numeric(predict(svm_model1,data.frame(valX)))
+      
+      score = score_func(valy, svm1.class)
+      print(score)
+      return(score)
+    }else{     
+      acc <- performCV(X_small, y_all, 14)
+      print(acc)
+      return(mean(acc[[1]])) 
+    }
+  }else{
+    X_test = read.table("test_cases.txt")
+    X_test <- scale(X_test,center = TRUE, scale = FALSE)
+    if(lm_flag==TRUE){
+      x_test = as.matrix(X_test)
+      lm_test_X <- sapply(1:nrow(x_test), function(i) lm(x_test[i,] ~ B2O3.med + graphite.med + CaClO3.med + FeSO4.med + KI.med + MgSO4.med + MnSO4.med + NaCl.med + Si.med)$coefficients)
+      X_test_small = t(lm_test_X)
+    }else{
+      X_test_small = as.matrix(X_test) %*% v[,1:size]
+    }
+
+    svm_model1 <- svm(data.frame(X_small), as.factor(y_all))
+    pred_class <- as.numeric(predict(svm_model1,data.frame(X_test_small)))
+    print(pred_class)
+    return(pred_class)    
+  }
+}
+```
+
+```{r}
+getScore_SVD(X_all, y_all, 10, simple=TRUE, "valid") # got 0.87
+getScore_SVD(X_all, y_all, 12, simple=TRUE, "valid") # got 0.93
+getScore_SVD(X_all, y_all, 22, simple=TRUE, "valid") # got 1.00
+```
+
+```{r}
+getScore_SVD(X_all, y_all, 2, simple=FALSE, "valid") 
+getScore_SVD(X_all, y_all, 10, simple=FALSE, "valid") # got 0.9428
+getScore_SVD(X_all, y_all, 12, simple=FALSE, "valid") # got 0.9428
+getScore_SVD(X_all, y_all, 13, simple=FALSE, "valid") # got 0.9571429
+getScore_SVD(X_all, y_all, 15, simple=FALSE, "valid") # got 0.9571429
+getScore_SVD(X_all, y_all, 15, simple=FALSE, "valid") # got 0.95
+```
+
+# Plotting accuracy versus the number of principle components
+```{r}
+score_list= list()
+for(i in 2:30){
+  print(i)
+  score_list[i] = getScore_SVD(X_all, y_all, i, simple=FALSE, "valid") 
+}
+#score_list[[1]] = 0.86
+plot(seq(2:30), as.vector(score_list[2:30]), xlab="The number of principle components", ylab="Average accuracy")
+```
+
+
+```{r}
+getScore_SVD(X_all, y_all, 4, simple=FALSE, "test") # Got 1st and 5th as anthrax
+getScore_SVD(X_all, y_all, 5, simple=FALSE, "test") # Got 5st and 9th as anthrax
+```
+
+
+```{r}
+# TO DO : Try different models like RandomForest and try different dimensionality reduction
+wave = read.table("wave.txt")
+par(mfrow=c(3,4))
+for(i in 1:10){
+  
+  plot(wave[,1], X_test[i,], type="l")
+  
+}
+par(mfrow=c(1,1))
+```
+
+
+```{r}
+par(mfrow=c(3,4))
+for(i in 1:12){
+  
+  plot(wave[,1], sugar[i,], type="l")
+  
+}
+par(mfrow=c(1,1))
+```
+
+# Dimensionality Reduction Part 2
+```{r}
+elements <- read.table("elements2.txt", header = FALSE)
+
+B2O3 <- elements[elements[,1] == "B2O3",-1 ]
+graphite <- elements[elements[,1] == "graphite",-1 ]
+CaClO3 <- elements[elements[,1] == "CaClO3",-1 ]
+FeSO4 <- elements[elements[,1] == "FeSO4",-1 ]
+KI <- elements[elements[,1] == "KI",-1 ]
+MgSO4 <- elements[elements[,1] == "MgSO4",-1 ]
+MnSO4 <- elements[elements[,1] == "MnSO4",-1 ]
+NaCl <- elements[elements[,1] == "NaCl",-1 ]
+Si <- elements[elements[,1] == "Si",-1 ]
+
+
+B2O3.med <- apply(B2O3,2,median)
+graphite.med <- apply(graphite,2,median)
+CaClO3.med <- apply(CaClO3,2,median)
+FeSO4.med <- apply(FeSO4,2,median)
+KI.med <- apply(KI,2,median)
+MgSO4.med <- apply(MgSO4,2,median)
+MnSO4.med <- apply(MnSO4,2,median)
+NaCl.med <- apply(NaCl,2,median)
+Si.med <- apply(Si,2,median)
+
+x_all = as.matrix(X_all)
+lm_all_X <- sapply(1:nrow(x_all), function(i) lm(x_all[i,] ~ B2O3.med + graphite.med + CaClO3.med + FeSO4.med + KI.med + MgSO4.med + MnSO4.med + NaCl.med + Si.med)$coefficients)
+```
+
+# Prediction based on the second approach  
+```{r}
+getScore_SVD(t(lm_all_X), y_all, size=5, simple=FALSE, "test",lm_flag=TRUE)
+
+
+
+```
+

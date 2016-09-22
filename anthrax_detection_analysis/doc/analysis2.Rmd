@@ -1,0 +1,129 @@
+---
+title: "Untitled"
+author: "Yutaro Yamada"
+date: "December 14, 2015"
+output: html_document
+---
+
+```{r}
+setwd("/Users/yutaro/Dropbox/Yale/3_Junior_Fall/stat361/final_project/")
+
+# load all training data
+anthrax1 = read.table("anthrax1.txt")
+anthrax2 = read.table("anthrax2.txt")
+anthrax3 = read.table("anthrax3.txt")
+
+armh = read.table("armh.txt")
+bakingpowder = read.table("bakingpowder.txt")
+bakingsoda = read.table("bakingsoda.txt")
+chalk = read.table("crayolachalk.txt")
+flour = read.table("flour.txt")
+ibuprofen = read.table("ibuprofen.txt")
+sugar = read.table("sugar.txt")
+detergent = read.table("tideldbaked.txt")
+tylenol = read.table("tylenolgelcap.txt")
+```
+
+
+# Useful functions
+```{r}
+# For plotting
+wave = read.table("wave.txt")
+plotGraph <- function(substance){
+  par(mfrow=c(2,3))
+  for(i in 1:12){
+    plot(wave[,1], substance[i,], type="l")
+  }
+  par(mfrow=c(1,1))
+}
+
+B2O3.med <- apply(B2O3,2,median)
+
+# For getting training data
+getTrainingSet <-function(anthrax1, anthrax2, anthrax3, armh, bakingpowder, bakingsoda, chalk, flour, ibuprofen, sugar, detergent, tylenol){
+  X <- rbind(anthrax1, anthrax2, anthrax3, armh, bakingpowder, bakingsoda, chalk, flour, ibuprofen, sugar, detergent, tylenol)
+  y_pos_len = nrow(anthrax1)+nrow(anthrax2)+nrow(anthrax3)
+  y_pos <- rep(1, y_pos_len)
+  y_neg_len = nrow(X) - y_pos_len
+  y_neg <- rep(-1, y_neg_len)
+  y <- c(y_pos, y_neg)
+  
+  # randomly permutate the rows of X and correspondingly y's index
+  id_list <- seq(1:nrow(X))
+  idx <- sample(id_list, nrow(X), replace=FALSE,prob=NULL)
+  X <- X[idx, ]
+  y <- y[idx]
+  return(list(X, y))
+}
+```
+
+# Outlier detection (just visually doing it)
+```{r}
+# armh 3rd
+# bakingpowder None
+# bakingsoda None
+# crayolachalk None
+# flour None
+# ibuprofen : None; when it's variability is kind of high, the threhold got somewhat leinient
+# sugar 5th
+# detergent None
+# tylenol None
+plotGraph(armh) #etc
+```
+
+# Obtain nice plots for the paper
+```{r}
+plot(wave[,1], sugar[5,], type="l", col="red", xlab="Wavelength(nm)", ylab="Intensity",main="Sugar")
+par(mfrow=c(1,1))
+sugar.med <- apply(sugar[-5,],2,median)
+lines(wave[,1], sugar.med, type="l")
+legend("topleft",lty=c(1,1),legend=c("outlier","median"), text.col=c("red","black"),col=c("red","black"), cex = 0.7)
+
+plot(wave[,1], armh[3,], type="l", col="red", xlab="Wavelength(nm)", ylab="Intensity",main="Arm & Hammer Detergent")
+par(mfrow=c(1,1))
+armh.med <- apply(armh[-3,],2,median)
+lines(wave[,1], armh.med, type="l")
+legend("topleft",lty=c(1,1),legend=c("outlier","median"), text.col=c("red","black"),col=c("red","black"), cex = 0.7)
+```
+
+# Get the training data and centering
+```{r}
+# I think I need to normalize the data before SVD....
+# get training set!!!
+Xy_all <- getTrainingSet(anthrax1, anthrax2, anthrax3, armh[-3,], bakingpowder, bakingsoda, chalk, flour, ibuprofen, sugar, detergent, tylenol)
+
+X_all <- Xy_all[[1]] # dimension is now 142x13701
+y_all <- Xy_all[[2]] # length is now 142
+X_all <- scale(X_all,center = TRUE, scale = FALSE)
+```
+
+# Get the scree plot for the paper
+```{r}
+SVD <- svd(X_all)
+d <- SVD$d
+plot(seq(1:10), d[1:10], type="l",xlab="Component number", ylab="Eigenvalue")
+```
+
+# Different values for k and compared the accuracy on validation sets.
+```{r}
+score_list= list()
+for(i in 1:30){
+  print(i)
+  score_list[i] = getScore_SVD(X_all, y_all, i, simple=FALSE, "valid", lm_flag=FALSE) 
+}
+#score_list[[1]] = 0.86
+plot(seq(1:30), as.vector(score_list[1:30]), xlab="The number of principle components", ylab="Average accuracy")
+```
+
+#  
+```{r}
+x_all = as.matrix(X_all)
+lm_all_X <- sapply(1:nrow(x_all), function(i) lm(x_all[i,] ~ B2O3.med + graphite.med + CaClO3.med + FeSO4.med + KI.med + MgSO4.med + MnSO4.med + NaCl.med + Si.med)$coefficients)
+dim(lm_all_X)
+```
+
+# Testing
+```{r}
+getScore_SVD(t(lm_all_X), y_all, 6, simple=FALSE, "test", lm_flag=TRUE) 
+
+getScore_SVD(t(lm_all_X), y_all, 6, simple=FALSE, "valid", lm_flag=TRUE) 
